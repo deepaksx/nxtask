@@ -9,7 +9,6 @@ services:
     name: nxtask-api
     runtime: node
     region: oregon
-    plan: free
     rootDir: backend
     buildCommand: npm install && npm run setup && npm run seed
     startCommand: npm start
