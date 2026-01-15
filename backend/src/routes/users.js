@@ -1,24 +1,31 @@
 import express from 'express';
-import db from '../db.js';
+import pool from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Get all users (for task assignment)
-router.get('/', authenticateToken, (req, res, next) => {
+router.get('/', authenticateToken, async (req, res, next) => {
   try {
-    const users = db.prepare(`
+    const result = await pool.query(`
       SELECT id, email, name, seniority_level, created_at
       FROM users
       ORDER BY seniority_level ASC, name ASC
-    `).all();
+    `);
 
     // Get categories for each user
-    const getCategories = db.prepare('SELECT category FROM user_categories WHERE user_id = ?');
-    const usersWithCategories = users.map(user => ({
-      ...user,
-      categories: getCategories.all(user.id).map(c => c.category)
-    }));
+    const usersWithCategories = await Promise.all(
+      result.rows.map(async (user) => {
+        const catResult = await pool.query(
+          'SELECT category FROM user_categories WHERE user_id = $1',
+          [user.id]
+        );
+        return {
+          ...user,
+          categories: catResult.rows.map(c => c.category)
+        };
+      })
+    );
 
     res.json(usersWithCategories);
   } catch (err) {
@@ -27,58 +34,58 @@ router.get('/', authenticateToken, (req, res, next) => {
 });
 
 // Get juniors (users with higher seniority_level number than current user)
-router.get('/juniors', authenticateToken, (req, res, next) => {
+router.get('/juniors', authenticateToken, async (req, res, next) => {
   try {
-    const juniors = db.prepare(`
+    const result = await pool.query(`
       SELECT id, email, name, seniority_level, created_at
       FROM users
-      WHERE seniority_level > ?
+      WHERE seniority_level > $1
       ORDER BY seniority_level ASC, name ASC
-    `).all(req.user.seniority_level);
+    `, [req.user.seniority_level]);
 
-    res.json(juniors);
+    res.json(result.rows);
   } catch (err) {
     next(err);
   }
 });
 
 // Get assignable users (same level and below for task creation)
-router.get('/assignable', authenticateToken, (req, res, next) => {
+router.get('/assignable', authenticateToken, async (req, res, next) => {
   try {
-    const users = db.prepare(`
+    const result = await pool.query(`
       SELECT id, email, name, seniority_level, created_at
       FROM users
-      WHERE seniority_level >= ?
+      WHERE seniority_level >= $1
       ORDER BY seniority_level ASC, name ASC
-    `).all(req.user.seniority_level);
+    `, [req.user.seniority_level]);
 
-    res.json(users);
+    res.json(result.rows);
   } catch (err) {
     next(err);
   }
 });
 
 // Get user by ID
-router.get('/:id', authenticateToken, (req, res, next) => {
+router.get('/:id', authenticateToken, async (req, res, next) => {
   try {
-    const user = db.prepare(`
+    const result = await pool.query(`
       SELECT id, email, name, seniority_level, created_at
       FROM users
-      WHERE id = ?
-    `).get(req.params.id);
+      WHERE id = $1
+    `, [req.params.id]);
 
-    if (!user) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json(user);
+    res.json(result.rows[0]);
   } catch (err) {
     next(err);
   }
 });
 
 // Update user seniority level (Level 1 users only)
-router.put('/:id', authenticateToken, (req, res, next) => {
+router.put('/:id', authenticateToken, async (req, res, next) => {
   try {
     // Only Level 1 users can manage users
     if (req.user.seniority_level !== 1) {
@@ -94,42 +101,45 @@ router.put('/:id', authenticateToken, (req, res, next) => {
     }
 
     // Check if user exists
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-    if (!user) {
+    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Prevent demoting yourself if you're the only Level 1
     if (userId === req.user.id && seniority_level !== 1) {
-      const otherLevel1Count = db.prepare(
-        'SELECT COUNT(*) as count FROM users WHERE seniority_level = 1 AND id != ?'
-      ).get(userId).count;
+      const countResult = await pool.query(
+        'SELECT COUNT(*) as count FROM users WHERE seniority_level = 1 AND id != $1',
+        [userId]
+      );
 
-      if (otherLevel1Count === 0) {
+      if (parseInt(countResult.rows[0].count) === 0) {
         return res.status(400).json({ error: 'Cannot demote yourself - you are the only senior executive' });
       }
     }
 
     // Update seniority level
-    db.prepare('UPDATE users SET seniority_level = ? WHERE id = ?').run(seniority_level, userId);
+    await pool.query('UPDATE users SET seniority_level = $1 WHERE id = $2', [seniority_level, userId]);
 
-    const updatedUser = db.prepare(`
+    const updatedResult = await pool.query(`
       SELECT id, email, name, seniority_level, created_at
-      FROM users WHERE id = ?
-    `).get(userId);
+      FROM users WHERE id = $1
+    `, [userId]);
 
     // Get categories
-    const categories = db.prepare('SELECT category FROM user_categories WHERE user_id = ?')
-      .all(userId).map(c => c.category);
+    const catResult = await pool.query(
+      'SELECT category FROM user_categories WHERE user_id = $1',
+      [userId]
+    );
 
-    res.json({ ...updatedUser, categories });
+    res.json({ ...updatedResult.rows[0], categories: catResult.rows.map(c => c.category) });
   } catch (err) {
     next(err);
   }
 });
 
 // Update user categories (Level 1 users only)
-router.put('/:id/categories', authenticateToken, (req, res, next) => {
+router.put('/:id/categories', authenticateToken, async (req, res, next) => {
   try {
     // Only Level 1 users can manage categories
     if (req.user.seniority_level !== 1) {
@@ -151,16 +161,17 @@ router.put('/:id/categories', authenticateToken, (req, res, next) => {
     }
 
     // Check if user exists
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-    if (!user) {
+    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Delete existing categories and insert new ones
-    db.prepare('DELETE FROM user_categories WHERE user_id = ?').run(userId);
+    await pool.query('DELETE FROM user_categories WHERE user_id = $1', [userId]);
 
-    const insertCategory = db.prepare('INSERT INTO user_categories (user_id, category) VALUES (?, ?)');
-    categories.forEach(cat => insertCategory.run(userId, cat));
+    for (const cat of categories) {
+      await pool.query('INSERT INTO user_categories (user_id, category) VALUES ($1, $2)', [userId, cat]);
+    }
 
     res.json({ userId, categories });
   } catch (err) {
@@ -169,7 +180,7 @@ router.put('/:id/categories', authenticateToken, (req, res, next) => {
 });
 
 // Delete user (Level 1 users only)
-router.delete('/:id', authenticateToken, (req, res, next) => {
+router.delete('/:id', authenticateToken, async (req, res, next) => {
   try {
     // Only Level 1 users can delete users
     if (req.user.seniority_level !== 1) {
@@ -184,23 +195,24 @@ router.delete('/:id', authenticateToken, (req, res, next) => {
     }
 
     // Check if user exists
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-    if (!user) {
+    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Check if user has any tasks assigned
-    const taskCount = db.prepare(
-      'SELECT COUNT(*) as count FROM tasks WHERE assigned_to = ? OR created_by = ?'
-    ).get(userId, userId).count;
+    const taskResult = await pool.query(
+      'SELECT COUNT(*) as count FROM tasks WHERE assigned_to = $1 OR created_by = $1',
+      [userId]
+    );
 
-    if (taskCount > 0) {
+    if (parseInt(taskResult.rows[0].count) > 0) {
       return res.status(400).json({
-        error: `Cannot delete user - they have ${taskCount} task(s) assigned or created. Reassign tasks first.`
+        error: `Cannot delete user - they have ${taskResult.rows[0].count} task(s) assigned or created. Reassign tasks first.`
       });
     }
 
-    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 
     res.json({ message: 'User deleted successfully' });
   } catch (err) {
