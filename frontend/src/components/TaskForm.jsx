@@ -3,6 +3,13 @@ import { api } from '../utils/api';
 
 const CATEGORIES = ['Projects', 'Pre-Sales', 'Admin', 'Miscellaneous'];
 
+// Format date for HTML date input (requires YYYY-MM-DD)
+const formatDateForInput = (dateStr) => {
+  if (!dateStr) return '';
+  // Handle ISO format (2026-01-20T00:00:00.000Z) or plain date (2026-01-20)
+  return dateStr.split('T')[0];
+};
+
 export default function TaskForm({ task, parentTask, onSubmit, onCancel }) {
   // Category is only for root tasks (no parent)
   const isRootTask = !parentTask && !task?.parent_task_id;
@@ -10,8 +17,8 @@ export default function TaskForm({ task, parentTask, onSubmit, onCancel }) {
   const [formData, setFormData] = useState({
     title: task?.title || '',
     description: task?.description || '',
-    start_date: task?.start_date || '',
-    due_date: task?.due_date || '',
+    start_date: formatDateForInput(task?.start_date),
+    due_date: formatDateForInput(task?.due_date),
     priority: task?.priority || 'medium',
     assigned_to: task?.assigned_to || '',
     category: task?.category || ''
@@ -157,10 +164,10 @@ export default function TaskForm({ task, parentTask, onSubmit, onCancel }) {
             className="form-input"
             value={formData.start_date}
             onChange={handleChange}
-            min={parentTask?.start_date || ''}
+            min={formatDateForInput(parentTask?.start_date)}
           />
           {parentTask?.start_date && (
-            <small className="text-muted">Cannot be before {parentTask.start_date}</small>
+            <small className="text-muted">Cannot be before {formatDateForInput(parentTask.start_date)}</small>
           )}
         </div>
 

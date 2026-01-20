@@ -5,6 +5,13 @@ import { useAuth } from '../context/AuthContext';
 
 const CATEGORIES = ['Projects', 'Pre-Sales', 'Admin', 'Miscellaneous'];
 
+// Format date for HTML date input (requires YYYY-MM-DD)
+const formatDateForInput = (dateStr) => {
+  if (!dateStr) return '';
+  // Handle ISO format (2026-01-20T00:00:00.000Z) or plain date (2026-01-20)
+  return dateStr.split('T')[0];
+};
+
 export default function TaskDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -39,8 +46,8 @@ export default function TaskDetail() {
       setFormData({
         title: data.title || '',
         description: data.description || '',
-        start_date: data.start_date || '',
-        due_date: data.due_date || '',
+        start_date: formatDateForInput(data.start_date),
+        due_date: formatDateForInput(data.due_date),
         priority: data.priority || 'medium',
         status: data.status || 'not started',
         assigned_to: data.assigned_to || '',
