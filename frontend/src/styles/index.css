@@ -1074,6 +1074,35 @@ html, body, #root {
   flex-shrink: 0;
 }
 
+.gantt-add-subtask {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.gantt-list-row:hover .gantt-add-subtask {
+  opacity: 1;
+}
+
+.gantt-add-subtask:hover {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
 /* Timeline Body */
 .gantt-timeline-body {
   flex: 1;

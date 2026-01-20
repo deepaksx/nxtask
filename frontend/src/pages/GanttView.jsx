@@ -8,6 +8,7 @@ export default function GanttView() {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [parentTask, setParentTask] = useState(null);
   const [hideCompleted, setHideCompleted] = useState(true); // Default: hide completed
   const [selectedCategories, setSelectedCategories] = useState([]); // Empty = all categories
   const [showMyTasks, setShowMyTasks] = useState(false); // Filter to show only my tasks
@@ -28,16 +29,24 @@ export default function GanttView() {
   };
 
   const handleCreateTask = () => {
+    setParentTask(null);
+    setShowModal(true);
+  };
+
+  const handleAddSubtask = (task) => {
+    setParentTask(task);
     setShowModal(true);
   };
 
   const handleFormSubmit = () => {
     setShowModal(false);
+    setParentTask(null);
     loadTasks();
   };
 
   const handleCloseModal = () => {
     setShowModal(false);
+    setParentTask(null);
   };
 
   if (loading) {
@@ -59,15 +68,17 @@ export default function GanttView() {
         highlightMyTasks={showMyTasks}
         onHighlightMyTasksChange={setShowMyTasks}
         onCreateTask={handleCreateTask}
+        onAddSubtask={handleAddSubtask}
         onRefresh={loadTasks}
       />
 
       <Modal
         isOpen={showModal}
         onClose={handleCloseModal}
-        title="Create New Task"
+        title={parentTask ? 'Add Subtask' : 'Create New Task'}
       >
         <TaskForm
+          parentTask={parentTask}
           onSubmit={handleFormSubmit}
           onCancel={handleCloseModal}
         />

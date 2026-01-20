@@ -140,6 +140,7 @@ export default function GanttChart({
   selectedCategories = [],
   onCategoryChange = null,
   onCreateTask = null,
+  onAddSubtask = null,
   onRefresh = null
 }) {
   const { user } = useAuth();
@@ -548,6 +549,18 @@ export default function GanttChart({
                 </Link>
                 {isMyTask && highlightMyTasks && <span className="gantt-my-badge">ME</span>}
                 <span className="gantt-task-assignee">{task.assignee_name?.split(' ')[0]}</span>
+                {onAddSubtask && isMyTask && (
+                  <button
+                    className="gantt-add-subtask"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAddSubtask(task);
+                    }}
+                    title="Add subtask"
+                  >
+                    +
+                  </button>
+                )}
               </div>
             );
           })}
