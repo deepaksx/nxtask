@@ -1,12 +1,12 @@
 import express from 'express';
-import pool from '../db.js';
+import { query } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Helper: Get task with full details
 async function getTaskWithDetails(taskId) {
-  const result = await pool.query(`
+  const result = await query(`
     SELECT
       t.*,
       creator.name as creator_name,
@@ -18,7 +18,7 @@ async function getTaskWithDetails(taskId) {
     LEFT JOIN users assignee ON t.assigned_to = assignee.id
     WHERE t.id = $1
   `, [taskId]);
-  return result.rows[0];
+  return result[0];
 }
 
 // Helper: Build task tree
@@ -46,11 +46,10 @@ function buildTaskTree(tasks) {
 
 // Helper: Check if all subtasks are completed
 async function areAllSubtasksCompleted(taskId) {
-  const result = await pool.query(
+  const subtasks = await query(
     'SELECT id, status FROM tasks WHERE parent_task_id = $1',
     [taskId]
   );
-  const subtasks = result.rows;
 
   if (subtasks.length === 0) return true;
 
@@ -64,12 +63,12 @@ async function areAllSubtasksCompleted(taskId) {
 
 // Helper: Auto-complete parent tasks
 async function autoCompleteParents(taskId) {
-  const result = await pool.query('SELECT parent_task_id FROM tasks WHERE id = $1', [taskId]);
-  const task = result.rows[0];
+  const result = await query('SELECT parent_task_id FROM tasks WHERE id = $1', [taskId]);
+  const task = result[0];
 
   if (task && task.parent_task_id) {
     if (await areAllSubtasksCompleted(task.parent_task_id)) {
-      await pool.query(`
+      await query(`
         UPDATE tasks
         SET status = 'completed', completed_at = CURRENT_TIMESTAMP
         WHERE id = $1 AND status != 'completed'
@@ -87,11 +86,11 @@ async function getTaskBreadcrumb(taskId) {
   let currentId = taskId;
 
   while (currentId) {
-    const result = await pool.query(
+    const result = await query(
       'SELECT id, title, parent_task_id FROM tasks WHERE id = $1',
       [currentId]
     );
-    const task = result.rows[0];
+    const task = result[0];
     if (!task) break;
     breadcrumb.unshift({ id: task.id, title: task.title });
     currentId = task.parent_task_id;
@@ -102,11 +101,11 @@ async function getTaskBreadcrumb(taskId) {
 
 // Helper: Get user's allowed categories
 async function getUserCategories(userId) {
-  const result = await pool.query(
+  const result = await query(
     'SELECT category FROM user_categories WHERE user_id = $1',
     [userId]
   );
-  return result.rows.map(c => c.category);
+  return result.map(c => c.category);
 }
 
 // Get all tasks (tree structure)
@@ -125,7 +124,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
     // Build category filter for root tasks
     const categoryPlaceholders = userCategories.map((_, i) => `$${i + 1}`).join(',');
 
-    let query = `
+    let queryStr = `
       SELECT
         t.*,
         creator.name as creator_name,
@@ -144,33 +143,32 @@ router.get('/', authenticateToken, async (req, res, next) => {
     let paramIndex = userCategories.length + 1;
 
     if (status) {
-      query += ` AND t.status = $${paramIndex}`;
+      queryStr += ` AND t.status = $${paramIndex}`;
       params.push(status);
       paramIndex++;
     }
 
     if (priority) {
-      query += ` AND t.priority = $${paramIndex}`;
+      queryStr += ` AND t.priority = $${paramIndex}`;
       params.push(priority);
       paramIndex++;
     }
 
     if (assignee) {
-      query += ` AND t.assigned_to = $${paramIndex}`;
+      queryStr += ` AND t.assigned_to = $${paramIndex}`;
       params.push(parseInt(assignee));
       paramIndex++;
     }
 
     if (search) {
-      query += ` AND (t.title ILIKE $${paramIndex} OR t.description ILIKE $${paramIndex + 1})`;
+      queryStr += ` AND (t.title ILIKE $${paramIndex} OR t.description ILIKE $${paramIndex + 1})`;
       params.push(`%${search}%`, `%${search}%`);
       paramIndex += 2;
     }
 
-    query += ' ORDER BY t.created_at DESC';
+    queryStr += ' ORDER BY t.created_at DESC';
 
-    const result = await pool.query(query, params);
-    const tasks = result.rows;
+    const tasks = await query(queryStr, params);
 
     // Build tree and filter - only include subtasks whose root is in allowed categories
     const taskTree = buildTaskTree(tasks);
@@ -187,7 +185,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
 // Get my tasks (assigned to me)
 router.get('/my', authenticateToken, async (req, res, next) => {
   try {
-    const result = await pool.query(`
+    const result = await query(`
       SELECT
         t.*,
         creator.name as creator_name,
@@ -201,7 +199,7 @@ router.get('/my', authenticateToken, async (req, res, next) => {
       ORDER BY t.due_date ASC, t.priority DESC
     `, [req.user.id]);
 
-    const taskTree = buildTaskTree(result.rows);
+    const taskTree = buildTaskTree(result);
     res.json(taskTree);
   } catch (err) {
     next(err);
@@ -211,7 +209,7 @@ router.get('/my', authenticateToken, async (req, res, next) => {
 // Get team tasks (assigned to juniors)
 router.get('/team', authenticateToken, async (req, res, next) => {
   try {
-    const result = await pool.query(`
+    const result = await query(`
       SELECT
         t.*,
         creator.name as creator_name,
@@ -225,7 +223,7 @@ router.get('/team', authenticateToken, async (req, res, next) => {
       ORDER BY t.due_date ASC, t.priority DESC
     `, [req.user.seniority_level]);
 
-    const taskTree = buildTaskTree(result.rows);
+    const taskTree = buildTaskTree(result);
     res.json(taskTree);
   } catch (err) {
     next(err);
@@ -242,7 +240,7 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
     }
 
     const breadcrumb = await getTaskBreadcrumb(task.id);
-    const subtasksResult = await pool.query(`
+    const subtasksResult = await query(`
       SELECT
         t.*,
         creator.name as creator_name,
@@ -254,7 +252,7 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       ORDER BY t.created_at ASC
     `, [task.id]);
 
-    res.json({ ...task, breadcrumb, subtasks: subtasksResult.rows });
+    res.json({ ...task, breadcrumb, subtasks: subtasksResult });
   } catch (err) {
     next(err);
   }
@@ -275,21 +273,14 @@ router.post('/', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid category' });
     }
 
-    // Check if parent task exists and user is assignee (for subtasks)
+    // Check if parent task exists (for subtasks)
     let parentTask = null;
     if (parent_task_id) {
-      const parentResult = await pool.query('SELECT * FROM tasks WHERE id = $1', [parent_task_id]);
-      parentTask = parentResult.rows[0];
+      const parentResult = await query('SELECT * FROM tasks WHERE id = $1', [parent_task_id]);
+      parentTask = parentResult[0];
 
       if (!parentTask) {
         return res.status(404).json({ error: 'Parent task not found' });
-      }
-
-      // Only assignee of parent task can add subtasks
-      if (parentTask.assigned_to !== req.user.id) {
-        return res.status(403).json({
-          error: 'You can only add subtasks to tasks assigned to you'
-        });
       }
 
       // Validate start_date is not before parent's start_date
@@ -303,8 +294,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
     }
 
     // Check assignee exists and is same level or junior
-    const assigneeResult = await pool.query('SELECT * FROM users WHERE id = $1', [assigned_to]);
-    const assignee = assigneeResult.rows[0];
+    const assigneeResult = await query('SELECT * FROM users WHERE id = $1', [assigned_to]);
+    const assignee = assigneeResult[0];
 
     if (!assignee) {
       return res.status(404).json({ error: 'Assignee not found' });
@@ -316,7 +307,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
       });
     }
 
-    const result = await pool.query(`
+    const result = await query(`
       INSERT INTO tasks (title, description, start_date, due_date, priority, status, created_by, assigned_to, parent_task_id, category)
       VALUES ($1, $2, $3, $4, $5, 'not started', $6, $7, $8, $9)
       RETURNING id
@@ -332,7 +323,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
       parent_task_id ? null : (category || null) // Only root tasks have category
     ]);
 
-    const task = await getTaskWithDetails(result.rows[0].id);
+    const task = await getTaskWithDetails(result[0].id);
     res.status(201).json(task);
   } catch (err) {
     next(err);
@@ -342,8 +333,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
 // Update task
 router.put('/:id', authenticateToken, async (req, res, next) => {
   try {
-    const taskResult = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
-    const task = taskResult.rows[0];
+    const taskResult = await query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+    const task = taskResult[0];
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -366,8 +357,8 @@ router.put('/:id', authenticateToken, async (req, res, next) => {
 
     // Validate start_date is not before parent's start_date
     if (start_date && task.parent_task_id) {
-      const parentResult = await pool.query('SELECT start_date FROM tasks WHERE id = $1', [task.parent_task_id]);
-      const parentTask = parentResult.rows[0];
+      const parentResult = await query('SELECT start_date FROM tasks WHERE id = $1', [task.parent_task_id]);
+      const parentTask = parentResult[0];
       if (parentTask && parentTask.start_date) {
         if (new Date(start_date) < new Date(parentTask.start_date)) {
           return res.status(400).json({
@@ -379,8 +370,8 @@ router.put('/:id', authenticateToken, async (req, res, next) => {
 
     // If changing assignee, verify they're same level or junior
     if (assigned_to && assigned_to !== task.assigned_to) {
-      const assigneeResult = await pool.query('SELECT * FROM users WHERE id = $1', [assigned_to]);
-      const assignee = assigneeResult.rows[0];
+      const assigneeResult = await query('SELECT * FROM users WHERE id = $1', [assigned_to]);
+      const assignee = assigneeResult[0];
 
       if (!assignee) {
         return res.status(404).json({ error: 'Assignee not found' });
@@ -396,7 +387,7 @@ router.put('/:id', authenticateToken, async (req, res, next) => {
     // Only root tasks (no parent) can have category
     const newCategory = task.parent_task_id ? null : (category !== undefined ? category : task.category);
 
-    await pool.query(`
+    await query(`
       UPDATE tasks
       SET title = $1, description = $2, start_date = $3, due_date = $4, priority = $5, assigned_to = $6, category = $7
       WHERE id = $8
@@ -421,8 +412,8 @@ router.put('/:id', authenticateToken, async (req, res, next) => {
 // Update task status (complete/uncomplete)
 router.patch('/:id/status', authenticateToken, async (req, res, next) => {
   try {
-    const taskResult = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
-    const task = taskResult.rows[0];
+    const taskResult = await query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+    const task = taskResult[0];
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -445,7 +436,7 @@ router.patch('/:id/status', authenticateToken, async (req, res, next) => {
     }
 
     if (status === 'completed') {
-      await pool.query(`
+      await query(`
         UPDATE tasks
         SET status = $1, completed_at = CURRENT_TIMESTAMP
         WHERE id = $2
@@ -454,7 +445,7 @@ router.patch('/:id/status', authenticateToken, async (req, res, next) => {
       // Auto-complete parent if all subtasks done
       await autoCompleteParents(req.params.id);
     } else {
-      await pool.query(`
+      await query(`
         UPDATE tasks
         SET status = $1, completed_at = NULL
         WHERE id = $2
@@ -471,8 +462,8 @@ router.patch('/:id/status', authenticateToken, async (req, res, next) => {
 // Delete task (only creator, and only if no subtasks)
 router.delete('/:id', authenticateToken, async (req, res, next) => {
   try {
-    const taskResult = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
-    const task = taskResult.rows[0];
+    const taskResult = await query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
+    const task = taskResult[0];
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -484,18 +475,18 @@ router.delete('/:id', authenticateToken, async (req, res, next) => {
       });
     }
 
-    const subtasksResult = await pool.query(
+    const subtasksResult = await query(
       'SELECT COUNT(*) as count FROM tasks WHERE parent_task_id = $1',
       [req.params.id]
     );
 
-    if (parseInt(subtasksResult.rows[0].count) > 0) {
+    if (parseInt(subtasksResult[0].count) > 0) {
       return res.status(400).json({
         error: 'Cannot delete task with subtasks. Delete subtasks first.'
       });
     }
 
-    await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
+    await query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
     res.json({ message: 'Task deleted successfully' });
   } catch (err) {
     next(err);

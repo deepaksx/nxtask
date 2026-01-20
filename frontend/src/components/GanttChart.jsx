@@ -549,7 +549,7 @@ export default function GanttChart({
                 </Link>
                 {isMyTask && highlightMyTasks && <span className="gantt-my-badge">ME</span>}
                 <span className="gantt-task-assignee">{task.assignee_name?.split(' ')[0]}</span>
-                {onAddSubtask && isMyTask && (
+                {onAddSubtask && (
                   <button
                     className="gantt-add-subtask"
                     onClick={(e) => {

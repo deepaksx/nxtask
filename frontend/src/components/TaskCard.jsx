@@ -13,7 +13,7 @@ export default function TaskCard({ task, onUpdate, onAddSubtask }) {
   const isCreator = task.created_by === user.id;
   const canComplete = isAssignee;
   const canEdit = isCreator;
-  const canAddSubtask = isAssignee;
+  const canAddSubtask = true;
 
   const handleStatusChange = async (newStatus) => {
     if (!canComplete || updating) return;
