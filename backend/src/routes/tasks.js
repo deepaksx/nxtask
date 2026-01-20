@@ -267,6 +267,11 @@ router.post('/', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ error: 'Title and assignee are required' });
     }
 
+    // Only Level 1 users can create main (root) tasks
+    if (!parent_task_id && req.user.seniority_level !== 1) {
+      return res.status(403).json({ error: 'Only Level 1 users can create main tasks' });
+    }
+
     // Category is only valid for root tasks
     const validCategories = ['Projects', 'Pre-Sales', 'Admin', 'Miscellaneous'];
     if (category && !validCategories.includes(category)) {

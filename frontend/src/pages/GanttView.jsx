@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { api } from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 import GanttChart from '../components/GanttChart';
 import Modal from '../components/Modal';
 import TaskForm from '../components/TaskForm';
 
 export default function GanttView() {
+  const { user } = useAuth();
+  const canCreateMainTask = user?.seniority_level === 1;
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -67,7 +70,7 @@ export default function GanttView() {
         onCategoryChange={setSelectedCategories}
         highlightMyTasks={showMyTasks}
         onHighlightMyTasksChange={setShowMyTasks}
-        onCreateTask={handleCreateTask}
+        onCreateTask={canCreateMainTask ? handleCreateTask : null}
         onAddSubtask={handleAddSubtask}
         onRefresh={loadTasks}
       />
